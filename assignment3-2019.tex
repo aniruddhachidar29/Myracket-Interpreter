@@ -1,0 +1,154 @@
+\documentclass[11pt]{article}
+\usepackage{latexsym}
+\usepackage{array}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage[utf8]{inputenc}
+\usepackage{enumitem} 
+%\usepackage{color}
+\usepackage[normalem]{ulem}
+\def\baselinestretch{1.1}
+\newcommand{\cmt}[1]{}
+\newcommand{\myr}{\textit{myracket}} 
+
+\newcommand{\mybox}[1]{\centerline{\fbox{\parbox {.9\textwidth}{#1}}}}
+\topmargin 0in
+\headheight 0pt
+\headsep 0pt
+\oddsidemargin 0.25in
+\textwidth=6.5in
+\textheight=9in
+\marginparwidth=0in
+\thispagestyle{empty}
+\marginparsep=0pt
+\raggedbottom
+\setlength{\parindent}{0.0em}
+\setlength{\parskip}{1.0\baselineskip plus 0.5ex minus 0.2ex}
+\usepackage{etoolbox}
+\makeatletter
+\preto{\@verbatim}{\topsep=0pt \partopsep=0pt }
+\makeatother
+\begin{document}
+
+\hrule
+\begin{center}
+            {\large \bf Assignment 3---version 0.0}
+                                                  \\
+\bigskip
+Date  of  Submission:  {\bf 15th April, Wednesday}
+\hfill
+
+\end{center}
+\bigskip
+
+\hrule
+\bigskip
+\section{Introduction}
+This assignment is about implementing the environmental model of execution. At the end of the assignment, you will learn how a language with several interesting features is implemented. Let us give this language the name \myr. The implementation is not efficient---efficiency  will be the subject of the course CS 302. However, it will teach you the principles behind the implementation of \myr. 
+\section{Description of \myr}
+First let us see how the language being implemented will be represented. Remember that you are about to write a program for which the data is a program in {\myr}. Therefore we have to choose a suitable representation for programs in \myr. This is done through a series of {\tt struct}s that you will find in the file called {\tt defs.rkt}.
+
+\begin{verbatim}
+(struct pgm (deflist) #:transparent)
+(struct def (var/fun exp) #:transparent)
+\end{verbatim}
+
+A program is a list of definitions, of which one of the definitions defines a special symbol  {\tt main}. You should write you {\myr} programs in such a way that, at the end of execution, {\tt main} will have the result of the program. Each {\tt def} binds a variable or a function name to an expression. A {\tt deflist} is simply a list of {\tt defs} so that nothing needs to be defined for it. However one needs to define {\tt exp}.
+Going further:
+
+\begin{verbatim}
+;A variable is an expression
+;A constant is an expression
+;A string is an expression.
+;A list is an expression 
+(struct uexp (op exp) #:transparent); op = car, cdr
+(struct bexp (op exp1 exp2) #:transparent); op = cons, +, -, *, <, =, <=
+(struct iff (cond exp1 exp2) #:transparent)
+(struct app (fun explist) #:transparent) 
+(struct lam (varlist exp) #:transparent)
+(struct sett (var exp) #:transparent)
+(struct lett (deflist exp2) #:transparent)
+(struct lets (deflist exp2) #:transparent)
+(struct beginexp (explist) #:transparent)
+(struct defexp (deflist exp) #:transparent)
+(struct debugexp () #:transparent)
+\end{verbatim}
+As you can see, expressions consist of {\it symbols}, {\it constants}, {\it strings}, {\it lists}, {\it unary} and {\it binary expressions}    with built-in operators, {\it ifs}, {\it applications}, {\it lambdas}, {\it lets}, {\it begin expressions} and {\it define expressions}. In addition, there is a debug expression ({\tt debug}), that we shall talk about later. Note that there are certain kinds of expressions  that are in the intersection of {\myr} and {\it drracket}. These are strings, numbers, booleans, strings and operators.  This is to make the assignment easy.  
+
+Consider the program:
+\begin{verbatim}
+(define (f g x) (g (* x x))) 
+(define x 4)
+(define (h y) (+ x y))
+(define main (f h 5))
+\end{verbatim} 
+Using the {\tt struct}s defined above, this program would be represented as follows:
+\begin{verbatim}
+(define prog1
+  (pgm (list
+    (def 'f (lam (list 'g 'x) (app 'g (list (bexp * 'x 'x)))))
+    (def 'x 4)
+    (def 'h (lam (list 'y) (bexp + 'x 'y)))
+    (def 'main (app  'f (list 'h 5))))))
+\end{verbatim}
+
+The file  {\tt examples.rkt} contains ten examples that cover all those discussed in the class. 
+
+\section{Representation of stack, frames, and closures}
+From the discussion on the \textit{environment model} of execution, we know that as the program is running, it needs to create \textit{closures} and \textit{frames}. We also need a \textit{stack} to keep track of the current environment. We thus need the following definitions:
+\begin{verbatim}
+(struct frame (number bindings parent)  #:transparent)   
+(struct closure (lambda frame) #:transparent)
+\end{verbatim}
+Each frame represents a local environment. It consists of a frame number, a sequence of bindings of symbols to their values,  and the frame number of its parent frame. The parent frame is  the begining of a chain of framcreateframees representing the global environment. 
+The bindings should be implemented through a mutable hash table (Note: Read mutable hash tables). A closure is a lambda along with with an environment that helps in finding the values of the global symbols in the lambda. In this case also the environment is represented by the frame number of the beginning of a chain of frames. Finally, a stack is a list of frames, the top of the stack holds the frame beginning the current environment.
+
+If you see the file {\tt defs.rkt}, you will notice that the {\tt structs}'s for closure and frame don't look like what has been shown above. Instead, they seem to contain  a lot of things after the {\tt \#:transparent}. The extra code is to ensure that when you display frames (by a {\tt display} or {\tt displayln}), the output is easy to read and understand. For example, in my implementation, just before the execution of the body of {\tt h} (i.e. just before the execution of {\tt (+ x y)}), \dots the  environment would look like this 
+
+\begin{verbatim}
+  @@@@@@@@@@@@@@@@@@@@@@@
+#<Frame: Number: 2
+ Bindings: 
+   y --> 25 
+ Parent:  0>
+@@@@@@@@@@@@@@@@@@@@@@@
+#<Frame: Number: 0
+ Bindings: 
+   x --> 4
+   f --> #<: #<lam: (g x) #<app: g (#<+: x x>)>> Environment:  0>
+   h --> #<: #<lam: (y) #<beginexp: (#<debugexp> #<+: x y>)>> Environment:  0> 
+ Parent:  #<emptyframe: >>
+@@@@@@@@@@@@@@@@@@@@@@@
+\end{verbatim}
+The environment starts with the frame numbered 2. This is the frame of {\tt h} with the parameter  {\tt y} which has a value of 25. The parent of this frame  is frame 0. This has bindings for {\tt x}, {\tt f} and {\tt h} but not {\tt main}.  To display the  current environment, I have a special expression called {\tt (debugexp)}. If you insert {\tt (debugexp)} at a certain point in the program, it will show you the complete environment at that point. This, I hope, will be useful for you in debugging your program.   
+
+
+
+\section{A summary of the implementation rules}
+Here I shall summarize the rules of the implementation that we have discussed many times in the class. 
+\begin{enumerate}
+    \item  {\tt def}s extend the current frame by the new things being defined. Each definition binds the symbol being defined by its value.
+    \item The value of a symbol is whatever it is bound to.
+    \item The value of a constant is its value in \textit{drracket}.
+    \item The value of a unary or a binary operator is the corresponding racket operator applied to the values of its arguments.
+    \item The value of a {\tt lam}bda is a  {\tt closure}.
+    \item To find  value of an {\tt app}lication of a function to a list of arguments  a new frame is created with the parameters of the function bound to the actual arguments. The new frame becomes the current environment after the parent of the frame is set to the environment packed in the closure of the function being applied.
+    \item A {\tt lett} also creates a new frame with the current frame as parent. A {\tt lets} can be translated to individual {\tt lett}s.
+    \item A {\tt sett} is an assignment.
+    \item You know what {\tt beginexp} and {\tt defexp} do.   
+    \item {\tt debugexp} is being given to you in an implemented form. 
+\end{enumerate}   
+\section{What you have to do}
+As usual, there will be the following files:
+\begin{enumerate}
+ \item Files called {\tt defs.rkt} and {\tt examples.rkt} mentioned before.
+ \item A signature file call {\tt my-interpreter.rkt} which will have unfilled functions with brief descriptions of what they do. This is the file that you have to fill.
+ \item A trial file called  {\tt try.rkt}, in which you can try out different functions in my model implementation. Everything in the model implementation is made visible to you in {\tt try.rkt}. 
+ \item What you have to submit is the file {\tt my-interpreter.rkt}, with each definition completed.   
+\end{enumerate}
+
+
+
+
+\end{document}
+
